@@ -1,0 +1,217 @@
+# This workflow will build and push a Python application to an Azure Web App when a commit is pushed to your default branch.
+#
+# Thisname: Web Download Interface
+
+on: 
+  workflow_dispatch:
+    inputs:
+      web_port:
+        description: 'Web interface port'
+        default: '8080'
+
+jobs:
+  web-downloader:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Python and web server
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-pip ffmpeg
+        pip3 install yt-dlp flask
+        
+        # Create simple web interface
+        cat > web_downloader.py << 'EOF'
+        from flask import Flask, request, jsonify, render_template
+        import subprocess
+        import os
+        import json
+        import threading
+        
+        app = Flask(__name__)
+        
+        @app.route('/')
+        def index():
+            return '''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>GitHub Actions Downloader</title>
+                <style>
+                    body { font-family: Arial; margin: 40px; }
+                    .container { max-width: 800px; margin: 0 auto; }
+                    input[type="text"] { width: 70%; padding: 10px; margin: 10px 0; }
+                    button { padding: 10px 20px; background: #007acc; color: white; border: none; cursor: pointer; }
+                    .progress { width: 100%; background: #f0f0f0; margin: 10px 0; }
+                    .progress-bar { height: 20px; background: #007acc; width: 0%; }
+                    .log { background: #000; color: #0f0; padding: 10px; height: 300px; overflow-y: scroll; font-family: monospace; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>🔄 GitHub Actions Downloader</h1>
+                    <input type="text" id="url" placeholder="Enter TikTok/YouTube URL">
+                    <button onclick="startDownload()">Start Download</button>
+                    
+                    <div class="progress">
+                        <div class="progress-bar" id="progressBar"></div>
+                    </div>
+                    
+                    <div>Status: <span id="status">Ready</span></div>
+                    
+                    <h3>Download Log:</h3>
+                    <div class="log" id="log"></div>
+                </div>
+                
+                <script>
+                    function startDownload() {
+                        const url = document.getElementById('url').value;
+                        fetch('/download', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({url: url})
+                        });
+                        updateProgress();
+                    }
+                    
+                    function updateProgress() {
+                        fetch('/progress')
+                            .then(r => r.json())
+                            .then(data => {
+                                document.getElementById('progressBar').style.width = data.progress + '%';
+                                document.getElementById('status').textContent = data.status;
+                                document.getElementById('log').innerHTML = data.log;
+                                setTimeout(updateProgress, 1000);
+                            });
+                    }
+                </script>
+            </body>
+            </html>
+            '''
+        
+        download_status = {'progress': 0, 'status': 'Ready', 'log': ''}
+        
+        @app.route('/download', methods=['POST'])
+        def download():
+            data = request.json
+            url = data.get('url')
+            
+            def download_thread():
+                download_status.update({'progress': 10, 'status': 'Starting...', 'log': ''})
+                
+                try:
+                    cmd = f'yt-dlp -o "downloads/%(title)s.%(ext)s" --print-json "{url}"'
+                    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                    
+                    for line in process.stdout:
+                        download_status['log'] += line + '<br>'
+                        download_status['progress'] = min(90, download_status['progress'] + 5)
+                    
+                    download_status.update({'progress': 100, 'status': 'Completed!'})
+                except Exception as e:
+                    download_status.update({'status': f'Error: {e}', 'progress': 0})
+            
+            threading.Thread(target=download_thread).start()
+            return jsonify({'status': 'started'})
+        
+        @app.route('/progress')
+        def progress():
+            return jsonify(download_status)
+        
+        if __name__ == '__main__':
+            app.run(host='0.0.0.0', port=8080)
+        EOF
+
+    - name: Start web server (if needed)
+      run: |
+        # Note: GitHub Actions workflows can't directly expose web ports
+        # This would need to be deployed separately
+        echo "Web interface code is ready!"
+        echo "To use the web interface, deploy the Flask app separately."
+        echo "Download functionality will work through the workflow." workflow assumes you have already created the target Azure App Service web app.
+# For instructions see https://docs.microsoft.com/en-us/azure/app-service/quickstart-python?tabs=bash&pivots=python-framework-flask
+#
+# To configure this workflow:
+#
+# 1. Download the Publish Profile for your Azure Web App. You can download this file from the Overview page of your Web App in the Azure Portal.
+#    For more information: https://docs.microsoft.com/en-us/azure/app-service/deploy-github-actions?tabs=applevel#generate-deployment-credentials
+#
+# 2. Create a secret in your repository named AZURE_WEBAPP_PUBLISH_PROFILE, paste the publish profile contents as the value of the secret.
+#    For instructions on obtaining the publish profile see: https://docs.microsoft.com/azure/app-service/deploy-github-actions#configure-the-github-secret
+#
+# 3. Change the value for the AZURE_WEBAPP_NAME. Optionally, change the PYTHON_VERSION environment variables below.
+#
+# For more information on GitHub Actions for Azure: https://github.com/Azure/Actions
+# For more information on the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
+# For more samples to get started with GitHub Action workflows to deploy to Azure: https://github.com/Azure/actions-workflow-samples
+
+name: Build and deploy Python app to Azure Web App
+
+env:
+  AZURE_WEBAPP_NAME: your-app-name  # set this to the name of your Azure Web App
+  PYTHON_VERSION: '3.8'              # set this to the Python version to use
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python version
+        uses: actions/setup-python@v3.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Create and start virtual environment
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
+
+      - name: Upload artifact for deployment jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-app
+          path: |
+            .
+            !venv/
+
+  deploy:
+    permissions:
+      contents: none
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: 'Development'
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: python-app
+          path: .
+
+      - name: 'Deploy to Azure Web App'
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
