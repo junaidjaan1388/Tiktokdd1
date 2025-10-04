@@ -1,132 +1,492 @@
-name: Web Download Interface
+name: Windows 98 TikTok Download Manager
 
-on: 
+on:
   workflow_dispatch:
     inputs:
-      web_port:
-        description: 'Web interface port'
-        default: '8080'
+      target_url:
+        description: 'TikTok Profile URL'
+        required: true
+        default: 'https://www.tiktok.com/@qawwli.lovers1'
+      auto_start:
+        description: 'Start download immediately'
+        type: boolean
+        default: false
 
 jobs:
-  web-downloader:
+  windows98-downloader:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     
     steps:
-    - name: Checkout
+    - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Setup Python and web server
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y python3-pip ffmpeg
-        pip3 install yt-dlp flask
-        
-        # Create simple web interface
-        cat > web_downloader.py << 'EOF'
-        from flask import Flask, request, jsonify, render_template
-        import subprocess
-        import os
-        import json
-        import threading
-        
-        app = Flask(__name__)
-        
-        @app.route('/')
-        def index():
-            return '''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>GitHub Actions Downloader</title>
-                <style>
-                    body { font-family: Arial; margin: 40px; }
-                    .container { max-width: 800px; margin: 0 auto; }
-                    input[type="text"] { width: 70%; padding: 10px; margin: 10px 0; }
-                    button { padding: 10px 20px; background: #007acc; color: white; border: none; cursor: pointer; }
-                    .progress { width: 100%; background: #f0f0f0; margin: 10px 0; }
-                    .progress-bar { height: 20px; background: #007acc; width: 0%; }
-                    .log { background: #000; color: #0f0; padding: 10px; height: 300px; overflow-y: scroll; font-family: monospace; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h1>🔄 GitHub Actions Downloader</h1>
-                    <input type="text" id="url" placeholder="Enter TikTok/YouTube URL">
-                    <button onclick="startDownload()">Start Download</button>
-                    
-                    <div class="progress">
-                        <div class="progress-bar" id="progressBar"></div>
-                    </div>
-                    
-                    <div>Status: <span id="status">Ready</span></div>
-                    
-                    <h3>Download Log:</h3>
-                    <div class="log" id="log"></div>
-                </div>
-                
-                <script>
-                    function startDownload() {
-                        const url = document.getElementById('url').value;
-                        fetch('/download', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({url: url})
-                        });
-                        updateProgress();
-                    }
-                    
-                    function updateProgress() {
-                        fetch('/progress')
-                            .then(r => r.json())
-                            .then(data => {
-                                document.getElementById('progressBar').style.width = data.progress + '%';
-                                document.getElementById('status').textContent = data.status;
-                                document.getElementById('log').innerHTML = data.log;
-                                setTimeout(updateProgress, 1000);
-                            });
-                    }
-                </script>
-            </body>
-            </html>
-            '''
-        
-        download_status = {'progress': 0, 'status': 'Ready', 'log': ''}
-        
-        @app.route('/download', methods=['POST'])
-        def download():
-            data = request.json
-            url = data.get('url')
-            
-            def download_thread():
-                download_status.update({'progress': 10, 'status': 'Starting...', 'log': ''})
-                
-                try:
-                    cmd = f'yt-dlp -o "downloads/%(title)s.%(ext)s" --print-json "{url}"'
-                    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-                    
-                    for line in process.stdout:
-                        download_status['log'] += line + '<br>'
-                        download_status['progress'] = min(90, download_status['progress'] + 5)
-                    
-                    download_status.update({'progress': 100, 'status': 'Completed!'})
-                except Exception as e:
-                    download_status.update({'status': f'Error: {e}', 'progress': 0})
-            
-            threading.Thread(target=download_thread).start()
-            return jsonify({'status': 'started'})
-        
-        @app.route('/progress')
-        def progress():
-            return jsonify(download_status)
-        
-        if __name__ == '__main__':
-            app.run(host='0.0.0.0', port=8080)
-        EOF
+        sudo apt-get install -y ffmpeg python3-pip curl
 
-    - name: Start web server (if needed)
+    - name: Install Python packages
       run: |
-        # Note: GitHub Actions workflows can't directly expose web ports
-        # This would need to be deployed separately
-        echo "Web interface code is ready!"
-        echo "To use the web interface, deploy the Flask app separately."
-        echo "Download functionality will work through the workflow."
+        pip install yt-dlp flask requests
+
+    - name: Create Windows 98 Style Web Interface
+      run: |
+        mkdir -p web_interface
+        cat > web_interface/app.py << 'EOF'
+        from flask import Flask, render_template_string, request, jsonify, send_file
+        import os
+        import time
+        import threading
+        import yt_dlp
+        import json
+        from datetime import datetime
+        import zipfile
+
+        app = Flask(__name__)
+
+        # Global download state
+        download_state = {
+            'progress': 0,
+            'status': 'Ready to download...',
+            'current_file': '',
+            'total_files': 0,
+            'downloaded_files': 0,
+            'speed': '0 KB/s',
+            'eta': '--:--',
+            'is_downloading': False,
+            'logs': []
+        }
+
+        # Windows 98 Style HTML Template
+        HTML_TEMPLATE = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Windows 98 TikTok Download Manager</title>
+            <style>
+                * {
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }
+                body {
+                    font-family: 'MS Sans Serif', Arial, sans-serif;
+                    background: #008080 url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVQImWNgYGD4z4AEAAAiBAEBOb0+2AAAAABJRU5ErkJggg==');
+                    margin: 0;
+                    padding: 20px;
+                    color: #000;
+                    min-height: 100vh;
+                }
+                .desktop {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    min-height: 100vh;
+                }
+                .window {
+                    background-color: #c0c0c0;
+                    border: 2px outset;
+                    padding: 2px;
+                    margin: 10px auto;
+                    width: 95%;
+                    max-width: 900px;
+                    box-shadow: 3px 3px 10px rgba(0,0,0,0.3);
+                }
+                .title-bar {
+                    background: linear-gradient(90deg, #000080, #1084d0);
+                    color: white;
+                    padding: 6px 8px;
+                    font-weight: bold;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    font-size: 14px;
+                    border: 1px outset #c0c0c0;
+                }
+                .title-bar-controls {
+                    display: flex;
+                    gap: 2px;
+                }
+                .title-btn {
+                    width: 16px;
+                    height: 14px;
+                    background: #c0c0c0;
+                    border: 1px outset;
+                    font-size: 10px;
+                    text-align: center;
+                    line-height: 12px;
+                    cursor: pointer;
+                }
+                .content {
+                    padding: 20px;
+                    background-color: #c0c0c0;
+                    border: 2px inset;
+                }
+                .input-group {
+                    display: flex;
+                    gap: 10px;
+                    margin: 15px 0;
+                    align-items: center;
+                    flex-wrap: wrap;
+                }
+                input[type="text"] {
+                    flex: 1;
+                    min-width: 300px;
+                    padding: 8px 10px;
+                    border: 2px inset #c0c0c0;
+                    background: white;
+                    font-family: 'MS Sans Serif';
+                    font-size: 14px;
+                }
+                .btn {
+                    background-color: #c0c0c0;
+                    border: 2px outset #c0c0c0;
+                    padding: 8px 16px;
+                    font-family: 'MS Sans Serif';
+                    cursor: pointer;
+                    font-size: 14px;
+                    min-width: 120px;
+                }
+                .btn:hover {
+                    background-color: #d0d0d0;
+                }
+                .btn:active {
+                    border: 2px inset #c0c0c0;
+                }
+                .btn-primary {
+                    background: linear-gradient(45deg, #000080, #1084d0);
+                    color: white;
+                    font-weight: bold;
+                }
+                .progress-section {
+                    background: white;
+                    border: 2px inset #c0c0c0;
+                    padding: 15px;
+                    margin: 15px 0;
+                }
+                .progress-header {
+                    display: flex;
+                    justify-content: space-between;
+                    margin-bottom: 10px;
+                    font-weight: bold;
+                }
+                .progress-container {
+                    border: 2px inset #c0c0c0;
+                    background: white;
+                    height: 24px;
+                    margin: 10px 0;
+                    position: relative;
+                }
+                .progress-bar {
+                    background: linear-gradient(90deg, #000080, #1084d0);
+                    height: 100%;
+                    width: 0%;
+                    transition: width 0.3s ease;
+                }
+                .progress-text {
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    font-weight: bold;
+                    color: #000;
+                    text-shadow: 1px 1px 0 #fff;
+                    font-size: 12px;
+                }
+                .status-bar {
+                    background-color: #c0c0c0;
+                    border: 2px inset #c0c0c0;
+                    padding: 6px 8px;
+                    margin-top: 15px;
+                    font-size: 12px;
+                    display: flex;
+                    justify-content: space-between;
+                }
+                .log-window {
+                    border: 2px inset #c0c0c0;
+                    background: white;
+                    height: 300px;
+                    overflow-y: auto;
+                    padding: 10px;
+                    font-family: 'Courier New', monospace;
+                    font-size: 12px;
+                    line-height: 1.4;
+                    margin: 15px 0;
+                }
+                .log-entry {
+                    margin: 2px 0;
+                    padding: 2px 4px;
+                }
+                .log-success { color: #008000; background: #f0fff0; }
+                .log-error { color: #c00000; background: #fff0f0; }
+                .log-warning { color: #808000; background: #fffff0; }
+                .log-info { color: #000080; background: #f0f8ff; }
+                .file-stats {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                    gap: 10px;
+                    margin: 15px 0;
+                }
+                .stat-box {
+                    background: white;
+                    border: 2px inset #c0c0c0;
+                    padding: 10px;
+                    text-align: center;
+                }
+                .stat-value {
+                    font-size: 18px;
+                    font-weight: bold;
+                    color: #000080;
+                }
+                .stat-label {
+                    font-size: 11px;
+                    color: #666;
+                }
+                .quick-links {
+                    display: flex;
+                    gap: 10px;
+                    margin: 15px 0;
+                    flex-wrap: wrap;
+                }
+                .quick-link {
+                    background: #e8e8e8;
+                    border: 2px outset #c0c0c0;
+                    padding: 8px 12px;
+                    cursor: pointer;
+                    font-size: 12px;
+                }
+                .quick-link:hover {
+                    background: #f0f0f0;
+                }
+                @media (max-width: 768px) {
+                    .input-group {
+                        flex-direction: column;
+                        align-items: stretch;
+                    }
+                    input[type="text"] {
+                        min-width: auto;
+                    }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="desktop">
+                <div class="window">
+                    <div class="title-bar">
+                        <span>📥 Windows 98 TikTok Download Manager</span>
+                        <div class="title-bar-controls">
+                            <div class="title-btn">_</div>
+                            <div class="title-btn">□</div>
+                            <div class="title-btn">×</div>
+                        </div>
+                    </div>
+                    <div class="content">
+                        <h3>🎵 Qawwali TikTok Video Downloader</h3>
+                        
+                        <div class="input-group">
+                            <input type="text" id="urlInput" 
+                                   placeholder="https://www.tiktok.com/@username" 
+                                   value="{{ target_url }}">
+                            <button class="btn btn-primary" onclick="startDownload()">
+                                🚀 Start Download
+                            </button>
+                        </div>
+
+                        <div class="quick-links">
+                            <div class="quick-link" onclick="setUrl('https://www.tiktok.com/@qawwli.lovers1')">
+                                @qawwli.lovers1
+                            </div>
+                            <div class="quick-link" onclick="setUrl('https://www.tiktok.com/@sufi_vibes780')">
+                                @sufi_vibes780
+                            </div>
+                            <div class="quick-link" onclick="clearLogs()">
+                                🗑️ Clear Log
+                            </div>
+                            <div class="quick-link" onclick="showHelp()">
+                                ❓ Help
+                            </div>
+                        </div>
+
+                        <div class="file-stats">
+                            <div class="stat-box">
+                                <div class="stat-value" id="statProgress">0%</div>
+                                <div class="stat-label">Progress</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-value" id="statFiles">0</div>
+                                <div class="stat-label">Files Downloaded</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-value" id="statSpeed">0 KB/s</div>
+                                <div class="stat-label">Speed</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-value" id="statETA">--:--</div>
+                                <div class="stat-label">ETA</div>
+                            </div>
+                        </div>
+
+                        <div class="progress-section">
+                            <div class="progress-header">
+                                <span>Download Progress</span>
+                                <span id="currentFile">Ready...</span>
+                            </div>
+                            <div class="progress-container">
+                                <div class="progress-bar" id="progressBar"></div>
+                                <div class="progress-text" id="progressText">0%</div>
+                            </div>
+                        </div>
+
+                        <div class="log-window" id="logWindow">
+                            <div class="log-entry log-info">
+                                [SYSTEM] Welcome to Windows 98 TikTok Download Manager!
+                            </div>
+                            <div class="log-entry log-info">
+                                [SYSTEM] Enter a TikTok profile URL above and click Start Download
+                            </div>
+                        </div>
+
+                        <div class="status-bar">
+                            <span id="statusText">✅ System Ready | GitHub Actions</span>
+                            <span id="timeDisplay">--:--:--</span>
+                        </div>
+
+                        <div style="display: flex; gap: 10px; margin-top: 15px;">
+                            <button class="btn" onclick="checkStatus()">🔄 Refresh Status</button>
+                            <button class="btn" onclick="downloadResults()" id="downloadBtn" disabled>
+                                💾 Download Results
+                            </button>
+                            <button class="btn" onclick="stopDownload()" id="stopBtn" disabled>
+                                ⏹️ Stop Download
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+                let refreshInterval;
+                let isDownloading = false;
+
+                // Update time display
+                function updateTime() {
+                    const now = new Date();
+                    document.getElementById('timeDisplay').textContent = 
+                        now.toLocaleTimeString();
+                }
+                setInterval(updateTime, 1000);
+                updateTime();
+
+                function setUrl(url) {
+                    document.getElementById('urlInput').value = url;
+                    addLog(`Quick link set: ${url}`, 'info');
+                }
+
+                function startDownload() {
+                    const url = document.getElementById('urlInput').value.trim();
+                    if (!url) {
+                        alert('⚠️ Please enter a TikTok profile URL!');
+                        return;
+                    }
+
+                    if (!url.includes('tiktok.com/@')) {
+                        alert('❌ Please enter a valid TikTok profile URL (e.g., https://www.tiktok.com/@username)');
+                        return;
+                    }
+
+                    isDownloading = true;
+                    updateButtons();
+                    clearLogs();
+                    addLog(`Starting download from: ${url}`, 'info');
+                    updateProgress(0, 'Starting download...');
+
+                    fetch('/start-download', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({url: url})
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            addLog('Download started successfully!', 'success');
+                            startProgressTracking();
+                        } else {
+                            addLog('Failed to start download: ' + data.message, 'error');
+                            isDownloading = false;
+                            updateButtons();
+                        }
+                    })
+                    .catch(error => {
+                        addLog('Network error: ' + error, 'error');
+                        isDownloading = false;
+                        updateButtons();
+                    });
+                }
+
+                function startProgressTracking() {
+                    if (refreshInterval) clearInterval(refreshInterval);
+                    refreshInterval = setInterval(checkProgress, 1000);
+                }
+
+                function checkProgress() {
+                    fetch('/progress')
+                        .then(response => response.json())
+                        .then(data => {
+                            updateProgress(data.progress, data.status);
+                            document.getElementById('statProgress').textContent = data.progress + '%';
+                            document.getElementById('statFiles').textContent = data.downloaded_files;
+                            document.getElementById('statSpeed').textContent = data.speed;
+                            document.getElementById('statETA').textContent = data.eta;
+                            document.getElementById('currentFile').textContent = data.current_file;
+                            document.getElementById('statusText').textContent = data.status + ' | GitHub Actions';
+
+                            // Update logs
+                            if (data.recent_logs) {
+                                data.recent_logs.forEach(log => {
+                                    if (!document.querySelector(`[data-log-id="${log.id}"]`)) {
+                                        addLog(log.message, log.type, log.id);
+                                    }
+                                });
+                            }
+
+                            if (data.progress >= 100 || !data.is_downloading) {
+                                clearInterval(refreshInterval);
+                                isDownloading = false;
+                                updateButtons();
+                                document.getElementById('downloadBtn').disabled = false;
+                                addLog('Download completed! Click "Download Results" to get your files.', 'success');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Progress check failed:', error);
+                        });
+                }
+
+                function updateProgress(percent, status) {
+                    document.getElementById('progressBar').style.width = percent + '%';
+                    document.getElementById('progressText').textContent = percent + '%';
+                    document.getElementById('statProgress').textContent = percent + '%';
+                    document.getElementById('statusText').textContent = status + ' | GitHub Actions';
+                }
+
+                function addLog(message, type = 'info', id = null) {
+                    const logWindow = document.getElementById('logWindow');
+                    const logEntry = document.createElement('div');
+                    logEntry.className = `log-entry log-${type}`;
+                    if (id) logEntry.setAttribute('data-log-id', id);
+                    
+                    const timestamp = new Date().toLocaleTimeString();
+                    logEntry.innerHTML = `[${timestamp}] ${message}`;
+                    logWindow.appendChild(logEntry);
+                    logWindow.scrollTop = logWindow.scrollHeight;
+                }
+
+                function clearLogs() {
+                    document.getElementById('logWindow').innerHTML = '';
+                    addLog(
