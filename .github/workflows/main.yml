@@ -1,0 +1,134 @@
+name: Advanced Qawwali TikTok Downloader
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile_url:
+        description: 'TikTok Profile URL'
+        required: true
+        default: 'https://www.tiktok.com/@qawwli.lovers1'
+      quality:
+        description: 'Video Quality'
+        required: false
+        default: 'best'
+
+jobs:
+  download-qawwali:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          python3-pip \
+          ffmpeg \
+          curl \
+          wget \
+          jq
+
+    - name: Install TikTok download tools
+      run: |
+        pip3 install yt-dlp
+        pip3 install requests beautifulsoup4
+        pip3 install --upgrade yt-dlp
+
+    - name: Create download directory
+      run: |
+        mkdir -p downloads/qawwli_lovers1
+        cd downloads/qawwli_lovers1
+
+    - name: Method 1 - yt-dlp primary download
+      id: download_primary
+      continue-on-error: true
+      run: |
+        cd downloads/qawwli_lovers1
+        yt-dlp \
+          --ignore-errors \
+          --no-warnings \
+          --write-info-json \
+          --write-description \
+          --write-thumbnail \
+          --embed-metadata \
+          --write-annotations \
+          --write-comments \
+          --sleep-requests 2 \
+          --max-sleep-interval 10 \
+          -f "${{ github.event.inputs.quality }}[ext=mp4]" \
+          -o "%(upload_date)s_%(title).100s_%(id)s.%(ext)s" \
+          "${{ github.event.inputs.profile_url }}"
+        echo "Primary download completed"
+
+    - name: Method 2 - Alternative approach
+      if: steps.download_primary.outcome == 'failure'
+      id: download_fallback
+      continue-on-error: true
+      run: |
+        cd downloads/qawwli_lovers1
+        yt-dlp \
+          --ignore-errors \
+          --no-warnings \
+          -f "best" \
+          -o "fallback_%(upload_date)s_%(title).50s.%(ext)s" \
+          "${{ github.event.inputs.profile_url }}"
+
+    - name: Generate download report
+      id: report
+      run: |
+        cd downloads/qawwli_lovers1
+        VIDEO_COUNT=$(find . -name '*.mp4' | wc -l)
+        THUMB_COUNT=$(find . -name '*.jpg' | wc -l)
+        JSON_COUNT=$(find . -name '*.json' | wc -l)
+        TOTAL_SIZE=$(du -sh . | cut -f1)
+        
+        echo "video_count=$VIDEO_COUNT" >> $GITHUB_OUTPUT
+        echo "thumb_count=$THUMB_COUNT" >> $GITHUB_OUTPUT
+        echo "json_count=$JSON_COUNT" >> $GITHUB_OUTPUT
+        echo "total_size=$TOTAL_SIZE" >> $GITHUB_OUTPUT
+        
+        echo "📊 Download Report:" 
+        echo "🎥 Videos: $VIDEO_COUNT"
+        echo "🖼️ Thumbnails: $THUMB_COUNT"
+        echo "📋 Metadata: $JSON_COUNT"
+        echo "💾 Total Size: $TOTAL_SIZE"
+
+    - name: Create file listing
+      run: |
+        cd downloads/qawwli_lovers1
+        find . -type f -name '*.mp4' | sort > file_list.txt
+        echo "File listing created:"
+        cat file_list.txt | head -10
+
+    - name: Upload to GitHub Releases
+      if: steps.report.outputs.video_count > 0
+      uses: softprops/action-gh-release@v1
+      with:
+        files: downloads/qawwli_lovers1/**
+        tag_name: qawwali-tiktok-${{ github.run_number }}
+        body: |
+          Qawwali TikTok videos downloaded from @qawwli.lovers1
+          
+          Download Statistics:
+          - Videos: ${{ steps.report.outputs.video_count }}
+          - Thumbnails: ${{ steps.report.outputs.thumb_count }}
+          - Metadata files: ${{ steps.report.outputs.json_count }}
+          - Total size: ${{ steps.report.outputs.total_size }}
+          
+          Profile: https://www.tiktok.com/@qawwli.lovers1
+          Download date: ${{ github.run_id }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: qawwli-lovers1-complete
+        path: downloads/qawwli_lovers1/
+        retention-days: 90
+        if-no-files-found: error
