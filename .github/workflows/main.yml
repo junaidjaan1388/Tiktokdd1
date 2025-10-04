@@ -1,96 +1,113 @@
-name: Termux Commands Executor
+name: Termux-Style Operations
 
 on:
   workflow_dispatch:
     inputs:
-      commands_file:
-        description: 'Path to commands file'
-        required: false
-        default: '.termux-commands'
-      execute_type:
-        description: 'Execution type'
-        required: true
-        default: 'script'
+      operation:
+        description: 'Select operation'
         type: choice
         options:
-        - script
-        - interactive
-        - package_install
+        - install_packages
+        - run_script
+        - download_files
+        - build_project
+        - system_info
 
 jobs:
-  termux-commands:
+  termux-ops:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout repository
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Create default commands file
-      if: github.event.inputs.commands_file == '.termux-commands'
+    - name: Termux-style operation
       run: |
-        cat > .termux-commands << 'EOF'
-        # Termux Commands Script
-        pwd
-        ls -la
-        python3 --version
-        pip3 list --format=columns | head -10
-        node --version
-        npm --version
-        git --version
-        neofetch --stdout
-        echo "Termux simulation completed!"
-        EOF
-
-    - name: Execute Termux commands
-      run: |
-        echo "🏃 Executing Termux commands..."
-        echo "================================="
+        echo "🔧 Termux-style Operation: ${{ github.event.inputs.operation }}"
+        echo "=========================================="
         
-        # Set up environment
-        export TERMUX_SIMULATION="true"
-        export HOME=$GITHUB_WORKSPACE/termux-home
-        mkdir -p $HOME
-        
-        # Execute commands based on type
-        case "${{ github.event.inputs.execute_type }}" in
-          "script")
-            if [ -f "${{ github.event.inputs.commands_file }}" ]; then
-              echo "📜 Running script: ${{ github.event.inputs.commands_file }}"
-              bash "${{ github.event.inputs.commands_file }}"
+        case "${{ github.event.inputs.operation }}" in
+          "install_packages")
+            echo "📦 Installing Termux-like packages..."
+            sudo apt-get update
+            sudo apt-get install -y \
+              python3 python3-pip nodejs npm \
+              git curl wget ffmpeg \
+              vim nano jq tree htop
+            pip3 install requests beautifulsoup4 yt-dlp
+            echo "✅ Packages installed successfully"
+            ;;
+            
+          "run_script")
+            echo "🏃 Looking for scripts to run..."
+            if [ -f "termux-script.sh" ]; then
+              chmod +x termux-script.sh
+              ./termux-script.sh
+            elif [ -f "script.py" ]; then
+              python3 script.py
             else
-              echo "❌ Script file not found: ${{ github.event.inputs.commands_file }}"
+              echo "📜 Creating sample script..."
+              cat > sample-script.py << 'EOF'
+              print("🚀 Running Python script in Termux simulation!")
+              import requests
+              import os
+              print(f"Python version: {os.sys.version}")
+              print("Script execution completed!")
+              EOF
+              python3 sample-script.py
             fi
             ;;
-          "interactive")
-            echo "💬 Interactive mode:"
-            echo "Running common Termux commands..."
-            echo "$ pwd && ls -la"
-            pwd && ls -la
-            echo "$ python3 -c \"print('Hello from Python!')\""
-            python3 -c "print('Hello from Python!')"
-            echo "$ node -e \"console.log('Hello from Node.js!')\""
-            node -e "console.log('Hello from Node.js!')"
+            
+          "download_files")
+            echo "📥 Downloading files (Termux style)..."
+            mkdir -p downloads
+            cd downloads
+            # Simulate common Termux downloads
+            curl -O https://raw.githubusercontent.com/yt-dlp/yt-dlp/master/README.md
+            wget https://www.python.org/ftp/python/3.9.7/Python-3.9.7.tgz
+            echo "✅ Files downloaded to downloads/"
+            ls -la
             ;;
-          "package_install")
-            echo "📦 Package installation simulation:"
-            echo "Installing common Termux packages..."
-            sudo apt-get update
-            sudo apt-get install -y python3 nodejs git ffmpeg
-            pip3 install requests pillow youtube-dl
+            
+          "build_project")
+            echo "🔨 Building project..."
+            if [ -f "package.json" ]; then
+              echo "📦 Node.js project detected"
+              npm install
+              npm run build || npm start || echo "Build completed"
+            elif [ -f "requirements.txt" ]; then
+              echo "🐍 Python project detected"
+              pip3 install -r requirements.txt
+              python3 -c "print('Project setup complete')"
+            else
+              echo "📁 No build configuration found"
+              echo "Creating sample project..."
+              mkdir -p sample-project
+              cd sample-project
+              echo "print('Hello Termux!')" > main.py
+              python3 main.py
+            fi
+            ;;
+            
+          "system_info")
+            echo "📊 System Information (Termux Style)"
+            echo "====================================="
+            echo "OS: $(uname -a)"
+            echo "CPU: $(nproc) cores"
+            echo "Memory: $(free -h | grep Mem | awk '{print $2}') total"
+            echo "Disk: $(df -h . | awk 'NR==2 {print $4}') available"
+            echo "Python: $(python3 --version 2>/dev/null || echo 'Not installed')"
+            echo "Node: $(node --version 2>/dev/null || echo 'Not installed')"
+            echo "Git: $(git --version 2>/dev/null || echo 'Not installed')"
             ;;
         esac
 
-    - name: Generate command output
+    - name: Create operation report
       run: |
-        echo "📊 COMMAND EXECUTION SUMMARY" > command-summary.txt
-        echo "=============================" >> command-summary.txt
-        echo "Execution Type: ${{ github.event.inputs.execute_type }}" >> command-summary.txt
-        echo "Commands File: ${{ github.event.inputs.commands_file }}" >> command-summary.txt
-        echo "Timestamp: $(date)" >> command-summary.txt
-        echo "" >> command-summary.txt
-        echo "Available Packages:" >> command-summary.txt
-        python3 --version 2>/dev/null >> command-summary.txt || echo "Python3: Not available" >> command-summary.txt
-        node --version 2>/dev/null >> command-summary.txt || echo "Node.js: Not available" >> command-summary.txt
-        git --version 2>/dev/null >> command-summary.txt || echo "Git: Not available" >> command-summary.txt
-        
-        cat command-summary.txt
+        echo "📋 OPERATION COMPLETED: ${{ github.event.inputs.operation }}" > operation-report.txt
+        echo "==========================================" >> operation-report.txt
+        echo "Status: ✅ Success" >> operation-report.txt
+        echo "Runner: GitHub Actions - Ubuntu" >> operation-report.txt
+        echo "Time: $(date)" >> operation-report.txt
+        echo "Workspace: $GITHUB_WORKSPACE" >> operation-report.txt
+        cat operation-report.txt
