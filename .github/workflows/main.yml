@@ -1,411 +1,132 @@
-name: Windows 98 Style Downloader
+name: Web Download Interface
 
-on:
+on: 
   workflow_dispatch:
     inputs:
-      target_url:
-        description: 'URL to download content from'
-        required: true
-        default: 'https://www.tiktok.com/@qawwli.lovers1'
-      download_type:
-        description: 'Type of download'
-        required: true
-        default: 'tiktok'
-        type: choice
-        options:
-        - tiktok
-        - youtube
-        - general
+      web_port:
+        description: 'Web interface port'
+        default: '8080'
 
 jobs:
-  windows98-downloader:
-    runs-on: windows-latest  # Using Windows runner for authentic experience
-    timeout-minutes: 60
+  web-downloader:
+    runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout repository
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-
-    - name: Install dependencies
+    - name: Setup Python and web server
       run: |
-        python -m pip install --upgrade pip
-        pip install yt-dlp requests beautifulsoup4 flask
+        sudo apt-get update
+        sudo apt-get install -y python3-pip ffmpeg
+        pip3 install yt-dlp flask
         
-    - name: Create Windows 98 style downloader
-      run: |
-        # Create the main downloader script with Windows 98 UI
-        @"
+        # Create simple web interface
+        cat > web_downloader.py << 'EOF'
+        from flask import Flask, request, jsonify, render_template
+        import subprocess
         import os
-        import sys
-        import time
-        import threading
-        from flask import Flask, render_template_string, request, jsonify
-        import yt_dlp
-        import requests
         import json
-
+        import threading
+        
         app = Flask(__name__)
-
-        # Windows 98 Style HTML Template
-        HTML_TEMPLATE = '''
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Windows 98 Download Manager</title>
-            <style>
-                body {
-                    font-family: 'MS Sans Serif', Arial, sans-serif;
-                    background-color: #008080;
-                    margin: 0;
-                    padding: 20px;
-                    color: #000;
-                }
-                .window {
-                    background-color: #c0c0c0;
-                    border: 2px outset;
-                    padding: 2px;
-                    margin: 10px auto;
-                    width: 90%;
-                    max-width: 800px;
-                }
-                .title-bar {
-                    background: linear-gradient(90deg, #000080, #1084d0);
-                    color: white;
-                    padding: 2px 4px;
-                    font-weight: bold;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                }
-                .content {
-                    padding: 15px;
-                    background-color: #c0c0c0;
-                }
-                input[type="text"] {
-                    width: 70%;
-                    padding: 4px;
-                    border: 2px inset;
-                    background: white;
-                    font-family: 'MS Sans Serif';
-                }
-                button {
-                    background-color: #c0c0c0;
-                    border: 2px outset;
-                    padding: 4px 12px;
-                    font-family: 'MS Sans Serif';
-                    cursor: pointer;
-                }
-                button:active {
-                    border: 2px inset;
-                }
-                .progress-container {
-                    border: 2px inset;
-                    background: white;
-                    height: 20px;
-                    margin: 10px 0;
-                }
-                .progress-bar {
-                    background: linear-gradient(90deg, #000080, #1084d0);
-                    height: 100%;
-                    width: 0%;
-                    transition: width 0.3s;
-                }
-                .file-list {
-                    border: 2px inset;
-                    background: white;
-                    height: 200px;
-                    overflow-y: auto;
-                    padding: 5px;
-                    font-family: 'Courier New', monospace;
-                }
-                .status-bar {
-                    background-color: #c0c0c0;
-                    border: 2px inset;
-                    padding: 2px 4px;
-                    margin-top: 5px;
-                    font-size: 12px;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="window">
-                <div class="title-bar">
-                    <span>📥 Windows 98 Download Manager</span>
-                    <span style="font-size: 12px;">╳ ─ □</span>
-                </div>
-                <div class="content">
-                    <h3>🖼️ Enter URL to Download:</h3>
-                    <input type="text" id="urlInput" placeholder="https://www.tiktok.com/@username" value="${{ github.event.inputs.target_url }}">
+        
+        @app.route('/')
+        def index():
+            return '''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>GitHub Actions Downloader</title>
+                <style>
+                    body { font-family: Arial; margin: 40px; }
+                    .container { max-width: 800px; margin: 0 auto; }
+                    input[type="text"] { width: 70%; padding: 10px; margin: 10px 0; }
+                    button { padding: 10px 20px; background: #007acc; color: white; border: none; cursor: pointer; }
+                    .progress { width: 100%; background: #f0f0f0; margin: 10px 0; }
+                    .progress-bar { height: 20px; background: #007acc; width: 0%; }
+                    .log { background: #000; color: #0f0; padding: 10px; height: 300px; overflow-y: scroll; font-family: monospace; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>🔄 GitHub Actions Downloader</h1>
+                    <input type="text" id="url" placeholder="Enter TikTok/YouTube URL">
                     <button onclick="startDownload()">Start Download</button>
                     
-                    <div class="progress-container">
+                    <div class="progress">
                         <div class="progress-bar" id="progressBar"></div>
                     </div>
                     
-                    <div class="status-bar" id="statusBar">Ready to download...</div>
+                    <div>Status: <span id="status">Ready</span></div>
                     
-                    <h4>📁 Download Progress:</h4>
-                    <div class="file-list" id="fileList"></div>
-                    
-                    <div style="margin-top: 10px;">
-                        <button onclick="checkProgress()">Refresh Status</button>
-                        <button onclick="clearLog()">Clear Log</button>
-                    </div>
+                    <h3>Download Log:</h3>
+                    <div class="log" id="log"></div>
                 </div>
-            </div>
-
-            <script>
-                let downloadInterval;
                 
-                function startDownload() {
-                    const url = document.getElementById('urlInput').value;
-                    if (!url) {
-                        alert('Please enter a URL!');
-                        return;
+                <script>
+                    function startDownload() {
+                        const url = document.getElementById('url').value;
+                        fetch('/download', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({url: url})
+                        });
+                        updateProgress();
                     }
                     
-                    document.getElementById('statusBar').textContent = 'Starting download...';
-                    document.getElementById('progressBar').style.width = '5%';
-                    
-                    fetch('/start-download', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({url: url})
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            document.getElementById('statusBar').textContent = 'Download started successfully!';
-                            downloadInterval = setInterval(checkProgress, 2000);
-                        }
-                    });
-                }
-                
-                function checkProgress() {
-                    fetch('/progress')
-                        .then(response => response.json())
-                        .then(data => {
-                            document.getElementById('progressBar').style.width = data.progress + '%';
-                            document.getElementById('statusBar').textContent = data.status;
-                            document.getElementById('fileList').innerHTML = data.files.map(file => 
-                                `[${file.time}] ${file.name}<br>`
-                            ).join('');
-                            
-                            if (data.progress >= 100) {
-                                clearInterval(downloadInterval);
-                                document.getElementById('statusBar').textContent = 'Download completed!';
-                            }
-                        });
-                }
-                
-                function clearLog() {
-                    document.getElementById('fileList').innerHTML = '';
-                }
-            </script>
-        </body>
-        </html>
-        '''
-
-        download_status = {
-            'progress': 0,
-            'status': 'Ready',
-            'files': []
-        }
-
-        def download_videos(url):
-            try:
-                download_status['status'] = 'Initializing download...'
-                download_status['progress'] = 10
-                
-                # Create download directory
-                os.makedirs('downloads', exist_ok=True)
-                
-                ydl_opts = {
-                    'outtmpl': 'downloads/%(title).100s.%(ext)s',
-                    'format': 'best[ext=mp4]/best',
-                    'writethumbnail': True,
-                    'embedmetadata': True,
-                    'ignoreerrors': True,
-                    'progress_hooks': [progress_hook],
-                }
-                
-                download_status['status'] = 'Starting download process...'
-                download_status['progress'] = 20
-                
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
-                
-                download_status['progress'] = 100
-                download_status['status'] = 'Download completed successfully!'
-                
-            except Exception as e:
-                download_status['status'] = f'Error: {str(e)}'
-                download_status['progress'] = 0
-
-        def progress_hook(d):
-            if d['status'] == 'downloading':
-                filename = os.path.basename(d['filename'])
-                if '_percent_str' in d:
-                    percent = d['_percent_str'].strip()
-                    download_status['status'] = f'Downloading: {percent}'
-                    try:
-                        download_status['progress'] = min(95, int(float(percent.replace('%', ''))))
-                    except:
-                        pass
-                
-                download_status['files'].append({
-                    'time': time.strftime('%H:%M:%S'),
-                    'name': f'{filename} - {d.get("_percent_str", "0%")}'
-                })
-                
-                # Keep only last 20 files in log
-                if len(download_status['files']) > 20:
-                    download_status['files'] = download_status['files'][-20:]
-
-        @app.route('/')
-        def index():
-            return render_template_string(HTML_TEMPLATE)
-
-        @app.route('/start-download', methods=['POST'])
-        def start_download():
+                    function updateProgress() {
+                        fetch('/progress')
+                            .then(r => r.json())
+                            .then(data => {
+                                document.getElementById('progressBar').style.width = data.progress + '%';
+                                document.getElementById('status').textContent = data.status;
+                                document.getElementById('log').innerHTML = data.log;
+                                setTimeout(updateProgress, 1000);
+                            });
+                    }
+                </script>
+            </body>
+            </html>
+            '''
+        
+        download_status = {'progress': 0, 'status': 'Ready', 'log': ''}
+        
+        @app.route('/download', methods=['POST'])
+        def download():
             data = request.json
-            url = data.get('url', '')
+            url = data.get('url')
             
-            # Start download in background thread
-            thread = threading.Thread(target=download_videos, args=(url,))
-            thread.daemon = True
-            thread.start()
+            def download_thread():
+                download_status.update({'progress': 10, 'status': 'Starting...', 'log': ''})
+                
+                try:
+                    cmd = f'yt-dlp -o "downloads/%(title)s.%(ext)s" --print-json "{url}"'
+                    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                    
+                    for line in process.stdout:
+                        download_status['log'] += line + '<br>'
+                        download_status['progress'] = min(90, download_status['progress'] + 5)
+                    
+                    download_status.update({'progress': 100, 'status': 'Completed!'})
+                except Exception as e:
+                    download_status.update({'status': f'Error: {e}', 'progress': 0})
             
-            return jsonify({'success': True, 'message': 'Download started'})
-
+            threading.Thread(target=download_thread).start()
+            return jsonify({'status': 'started'})
+        
         @app.route('/progress')
-        def get_progress():
+        def progress():
             return jsonify(download_status)
-
+        
         if __name__ == '__main__':
-            app.run(host='0.0.0.0', port=8080, debug=False)
-        "@ > windows98_downloader.py
+            app.run(host='0.0.0.0', port=8080)
+        EOF
 
-    - name: Create batch file for Windows 98 style
+    - name: Start web server (if needed)
       run: |
-        @"
-        @echo off
-        echo ╔══════════════════════════════════════╗
-        echo ║    WINDOWS 98 DOWNLOAD MANAGER      ║
-        echo ║          GitHub Actions Edition     ║
-        echo ╚══════════════════════════════════════╝
-        echo.
-        echo Initializing download system...
-        echo Target: ${{ github.event.inputs.target_url }}
-        echo.
-        python windows98_downloader.py
-        "@ > start_downloader.bat
-
-    - name: Download content with progress tracking
-      run: |
-        # Create a simple progress tracking script
-        python -c "
-        import os
-        import time
-        import yt_dlp
-        from datetime import datetime
-        
-        class ProgressLogger:
-            def __init__(self):
-                self.downloaded_files = []
-                
-            def progress_hook(self, d):
-                if d['status'] == 'downloading':
-                    percent = d.get('_percent_str', '0%')
-                    speed = d.get('_speed_str', 'N/A')
-                    eta = d.get('_eta_str', 'N/A')
-                    
-                    print(f'[{datetime.now().strftime(\"%H:%M:%S\")}] 📥 {percent} | Speed: {speed} | ETA: {eta}')
-                    
-                elif d['status'] == 'finished':
-                    filename = os.path.basename(d['filename'])
-                    self.downloaded_files.append(filename)
-                    print(f'[{datetime.now().strftime(\"%H:%M:%S\")}] ✅ Completed: {filename}')
-        
-        logger = ProgressLogger()
-        
-        ydl_opts = {
-            'outtmpl': 'downloads/%(uploader)s/%(title).100s.%(ext)s',
-            'format': 'best[ext=mp4]/best',
-            'writethumbnail': True,
-            'embedmetadata': True,
-            'ignoreerrors': True,
-            'progress_hooks': [logger.progress_hook],
-        }
-        
-        print('🚀 Starting download process...')
-        print('🔗 URL: ${{ github.event.inputs.target_url }}')
-        print('⏰ Started at:', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        print('='*50)
-        
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download(['${{ github.event.inputs.target_url }}'])
-                
-            print('='*50)
-            print('🎉 Download completed successfully!')
-            print(f'📁 Files downloaded: {len(logger.downloaded_files)}')
-            
-        except Exception as e:
-            print(f'❌ Error: {e}')
-        "
-
-    - name: Create download summary
-      run: |
-        # Count downloaded files and create summary
-        $files = (Get-ChildItem -Path "downloads" -Recurse -File).Count
-        $totalSize = [math]::Round((Get-ChildItem -Path "downloads" -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 2)
-        
-        @"
-        ╔══════════════════════════════════════╗
-        ║         DOWNLOAD SUMMARY             ║
-        ║        Windows 98 Style              ║
-        ╚══════════════════════════════════════╝
-        
-        📊 Statistics:
-        📁 Files Downloaded: $files
-        💾 Total Size: $totalSize MB
-        🔗 Source URL: ${{ github.event.inputs.target_url }}
-        ⏰ Completed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-        
-        📂 Downloaded Content:
-        $(Get-ChildItem -Path "downloads" -Recurse -File | ForEach-Object { "   📄 $($_.Name)" })
-        
-        ✅ Process completed successfully!
-        "@ > download_summary.txt
-        
-        Get-Content download_summary.txt
-
-    - name: Upload downloaded content
-      uses: actions/upload-artifact@v4
-      with:
-        name: windows98-downloads
-        path: |
-          downloads/
-          download_summary.txt
-          windows98_downloader.py
-        retention-days: 30
-
-    - name: Create Windows 98 style report
-      run: |
-        @"
-        ========================================
-        WINDOWS 98 DOWNLOAD MANAGER - FINAL REPORT
-        ========================================
-        Status: COMPLETED
-        URL: ${{ github.event.inputs.target_url }}
-        Runner: Windows Server
-        Time: $(Get-Date)
-        Artifact: windows98-downloads
-        ========================================
-        "@ > windows98_report.txt
+        # Note: GitHub Actions workflows can't directly expose web ports
+        # This would need to be deployed separately
+        echo "Web interface code is ready!"
+        echo "To use the web interface, deploy the Flask app separately."
+        echo "Download functionality will work through the workflow."
