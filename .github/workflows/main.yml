@@ -1,78 +1,23 @@
-name: Download Qawwali TikTok Videos
+name: Quick Qawwali Download
 
-on:
-  workflow_dispatch:  # Manual trigger
-  schedule:
-    - cron: '0 0 * * 0'  # Run weekly on Sunday
+on: [workflow_dispatch]
 
 jobs:
-  download-tiktok:
+  download:
     runs-on: ubuntu-latest
-    timeout-minutes: 45  # Increase timeout for large profiles
     
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-
-    - name: Install system dependencies
+    - uses: actions/checkout@v4
+    
+    - name: One-command download
       run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg python3-pip
-
-    - name: Install yt-dlp
-      run: |
-        pip install yt-dlp
-        yt-dlp --version
-
-    - name: Download Qawwali TikTok videos
-      run: |
-        mkdir -p qawwali-videos
-        yt-dlp \
-          --ignore-errors \
-          --no-warnings \
-          --write-info-json \
-          --write-thumbnail \
-          --embed-metadata \
-          --convert-thumbnails jpg \
-          --sleep-requests 1 \
-          --max-sleep-interval 5 \
-          -f "best[ext=mp4]/best" \
-          -o "qawwali-videos/%(uploader)s/%(upload_date)s_%(title).150s.%(ext)s" \
+        pip3 install yt-dlp
+        yt-dlp -f "best[ext=mp4]" \
+          -o "qawwali_%(uploader)s_%(title).50s.%(ext)s" \
           "https://www.tiktok.com/@qawwli.lovers1"
-
-    - name: Count downloaded videos
-      id: count
-      run: |
-        echo "count=$(find qawwali-videos -name '*.mp4' | wc -l)" >> $GITHUB_OUTPUT
-        echo "📥 Downloaded $count videos from @qawwli.lovers1"
-
-    - name: Compress videos
-      run: |
-        tar -czf qawwali-videos-$(date +%Y%m%d-%H%M%S).tar.gz qawwali-videos/
-        ls -la *.tar.gz
-
-    - name: Upload videos as artifact
+          
+    - name: Upload results
       uses: actions/upload-artifact@v4
       with:
-        name: qawwali-tiktok-videos
-        path: |
-          qawwali-videos/
-          *.tar.gz
-        retention-days: 30
-        compression-level: 9
-
-    - name: Create summary
-      if: always()
-      run: |
-        echo "## Qawwali TikTok Download Summary" >> $GITHUB_STEP_SUMMARY
-        echo "### Profile: @qawwli.lovers1" >> $GITHUB_STEP_SUMMARY
-        echo "📹 **Videos downloaded:** ${{ steps.count.outputs.count }}" >> $GITHUB_STEP_SUMMARY
-        echo "🕒 **Timestamp:** $(date)" >> $GITHUB_STEP_SUMMARY
-        echo "🔗 **Profile URL:** https://www.tiktok.com/@qawwli.lovers1" >> $GITHUB_STEP_SUMMARY
-        echo "---" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Workflow completed successfully**" >> $GITHUB_STEP_SUMMARY
+        name: quick-qawwali-download
+        path: "*.mp4"
