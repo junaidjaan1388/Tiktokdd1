@@ -1,191 +1,411 @@
-name: Termux Terminal Simulator
+name: Windows 98 Style Downloader
 
 on:
   workflow_dispatch:
     inputs:
-      command:
-        description: 'Termux command to execute'
-        required: false
-        default: 'pkg list-all'
-      setup_environment:
-        description: 'Setup full Termux environment'
-        type: boolean
-        default: true
+      target_url:
+        description: 'URL to download content from'
+        required: true
+        default: 'https://www.tiktok.com/@qawwli.lovers1'
+      download_type:
+        description: 'Type of download'
+        required: true
+        default: 'tiktok'
+        type: choice
+        options:
+        - tiktok
+        - youtube
+        - general
 
 jobs:
-  termux-simulator:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+  windows98-downloader:
+    runs-on: windows-latest  # Using Windows runner for authentic experience
+    timeout-minutes: 60
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Setup Termux-like environment
-      if: inputs.setup_environment
-      run: |
-        echo "🔧 Setting up Termux-like environment on Ubuntu..."
-        
-        # Create Termux-like directory structure
-        mkdir -p $HOME/termux/home
-        mkdir -p $HOME/termux/usr/bin
-        mkdir -p $HOME/termux/storage/shared
-        mkdir -p $HOME/termux/storage/downloads
-        
-        # Set up environment variables
-        echo "export TERMUX_HOME=$HOME/termux/home" >> $GITHUB_ENV
-        echo "export TERMUX_PREFIX=$HOME/termux/usr" >> $GITHUB_ENV
-        echo "export PREFIX=$HOME/termux/usr" >> $GITHUB_ENV
-        echo "export HOME=$HOME/termux/home" >> $GITHUB_ENV
-        
-        # Install Termux-like packages
-        sudo apt-get update
-        sudo apt-get install -y \
-          python3 python3-pip nodejs npm git curl wget \
-          ffmpeg imagemagick vim nano jq tree file \
-          openssh-client rsync tar zip unzip \
-          clang make cmake pkg-config
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
 
-    - name: Install Termux-specific tools
-      if: inputs.setup_environment
+    - name: Install dependencies
       run: |
-        echo "📦 Installing Termux-like packages..."
+        python -m pip install --upgrade pip
+        pip install yt-dlp requests beautifulsoup4 flask
         
-        # Python packages commonly used in Termux
-        pip3 install \
-          requests beautifulsoup4 selenium \
-          youtube-dl yt-dlp pillow \
-          numpy pandas matplotlib \
-          flask django speedtest-cli
-        
-        # Node.js packages
-        npm install -g http-server live-server nodemon
-        
-        # Additional tools
-        sudo apt-get install -y \
-          neofetch htop nmap net-tools
-
-    - name: Create Termux startup script
+    - name: Create Windows 98 style downloader
       run: |
-        cat > termux-setup.sh << 'EOF'
-        #!/bin/bash
-        echo "╔══════════════════════════════════════╗"
-        echo "║        TERMUX SIMULATOR v1.0         ║"
-        echo "║      GitHub Actions Edition          ║"
-        echo "╚══════════════════════════════════════╝"
-        echo ""
-        echo "📱 Simulating Termux environment..."
-        echo "📍 Home: $HOME"
-        echo "🔧 Prefix: $PREFIX"
-        echo "📂 Storage: $HOME/storage"
-        echo ""
-        
-        # Create symbolic links for common Termux commands
-        ln -sf /usr/bin/python3 $HOME/termux/usr/bin/python
-        ln -sf /usr/bin/pip3 $HOME/termux/usr/bin/pip
-        
-        echo "✅ Environment ready!"
-        echo "💡 Available commands: python, pip, node, npm, git, curl, wget, ffmpeg"
-        echo "💡 Try: pkg list-simulated | python --version | pip list"
-        EOF
-        
-        chmod +x termux-setup.sh
-        ./termux-setup.sh
+        # Create the main downloader script with Windows 98 UI
+        @"
+        import os
+        import sys
+        import time
+        import threading
+        from flask import Flask, render_template_string, request, jsonify
+        import yt_dlp
+        import requests
+        import json
 
-    - name: Execute Termux command
+        app = Flask(__name__)
+
+        # Windows 98 Style HTML Template
+        HTML_TEMPLATE = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Windows 98 Download Manager</title>
+            <style>
+                body {
+                    font-family: 'MS Sans Serif', Arial, sans-serif;
+                    background-color: #008080;
+                    margin: 0;
+                    padding: 20px;
+                    color: #000;
+                }
+                .window {
+                    background-color: #c0c0c0;
+                    border: 2px outset;
+                    padding: 2px;
+                    margin: 10px auto;
+                    width: 90%;
+                    max-width: 800px;
+                }
+                .title-bar {
+                    background: linear-gradient(90deg, #000080, #1084d0);
+                    color: white;
+                    padding: 2px 4px;
+                    font-weight: bold;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .content {
+                    padding: 15px;
+                    background-color: #c0c0c0;
+                }
+                input[type="text"] {
+                    width: 70%;
+                    padding: 4px;
+                    border: 2px inset;
+                    background: white;
+                    font-family: 'MS Sans Serif';
+                }
+                button {
+                    background-color: #c0c0c0;
+                    border: 2px outset;
+                    padding: 4px 12px;
+                    font-family: 'MS Sans Serif';
+                    cursor: pointer;
+                }
+                button:active {
+                    border: 2px inset;
+                }
+                .progress-container {
+                    border: 2px inset;
+                    background: white;
+                    height: 20px;
+                    margin: 10px 0;
+                }
+                .progress-bar {
+                    background: linear-gradient(90deg, #000080, #1084d0);
+                    height: 100%;
+                    width: 0%;
+                    transition: width 0.3s;
+                }
+                .file-list {
+                    border: 2px inset;
+                    background: white;
+                    height: 200px;
+                    overflow-y: auto;
+                    padding: 5px;
+                    font-family: 'Courier New', monospace;
+                }
+                .status-bar {
+                    background-color: #c0c0c0;
+                    border: 2px inset;
+                    padding: 2px 4px;
+                    margin-top: 5px;
+                    font-size: 12px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="window">
+                <div class="title-bar">
+                    <span>📥 Windows 98 Download Manager</span>
+                    <span style="font-size: 12px;">╳ ─ □</span>
+                </div>
+                <div class="content">
+                    <h3>🖼️ Enter URL to Download:</h3>
+                    <input type="text" id="urlInput" placeholder="https://www.tiktok.com/@username" value="${{ github.event.inputs.target_url }}">
+                    <button onclick="startDownload()">Start Download</button>
+                    
+                    <div class="progress-container">
+                        <div class="progress-bar" id="progressBar"></div>
+                    </div>
+                    
+                    <div class="status-bar" id="statusBar">Ready to download...</div>
+                    
+                    <h4>📁 Download Progress:</h4>
+                    <div class="file-list" id="fileList"></div>
+                    
+                    <div style="margin-top: 10px;">
+                        <button onclick="checkProgress()">Refresh Status</button>
+                        <button onclick="clearLog()">Clear Log</button>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+                let downloadInterval;
+                
+                function startDownload() {
+                    const url = document.getElementById('urlInput').value;
+                    if (!url) {
+                        alert('Please enter a URL!');
+                        return;
+                    }
+                    
+                    document.getElementById('statusBar').textContent = 'Starting download...';
+                    document.getElementById('progressBar').style.width = '5%';
+                    
+                    fetch('/start-download', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({url: url})
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            document.getElementById('statusBar').textContent = 'Download started successfully!';
+                            downloadInterval = setInterval(checkProgress, 2000);
+                        }
+                    });
+                }
+                
+                function checkProgress() {
+                    fetch('/progress')
+                        .then(response => response.json())
+                        .then(data => {
+                            document.getElementById('progressBar').style.width = data.progress + '%';
+                            document.getElementById('statusBar').textContent = data.status;
+                            document.getElementById('fileList').innerHTML = data.files.map(file => 
+                                `[${file.time}] ${file.name}<br>`
+                            ).join('');
+                            
+                            if (data.progress >= 100) {
+                                clearInterval(downloadInterval);
+                                document.getElementById('statusBar').textContent = 'Download completed!';
+                            }
+                        });
+                }
+                
+                function clearLog() {
+                    document.getElementById('fileList').innerHTML = '';
+                }
+            </script>
+        </body>
+        </html>
+        '''
+
+        download_status = {
+            'progress': 0,
+            'status': 'Ready',
+            'files': []
+        }
+
+        def download_videos(url):
+            try:
+                download_status['status'] = 'Initializing download...'
+                download_status['progress'] = 10
+                
+                # Create download directory
+                os.makedirs('downloads', exist_ok=True)
+                
+                ydl_opts = {
+                    'outtmpl': 'downloads/%(title).100s.%(ext)s',
+                    'format': 'best[ext=mp4]/best',
+                    'writethumbnail': True,
+                    'embedmetadata': True,
+                    'ignoreerrors': True,
+                    'progress_hooks': [progress_hook],
+                }
+                
+                download_status['status'] = 'Starting download process...'
+                download_status['progress'] = 20
+                
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+                
+                download_status['progress'] = 100
+                download_status['status'] = 'Download completed successfully!'
+                
+            except Exception as e:
+                download_status['status'] = f'Error: {str(e)}'
+                download_status['progress'] = 0
+
+        def progress_hook(d):
+            if d['status'] == 'downloading':
+                filename = os.path.basename(d['filename'])
+                if '_percent_str' in d:
+                    percent = d['_percent_str'].strip()
+                    download_status['status'] = f'Downloading: {percent}'
+                    try:
+                        download_status['progress'] = min(95, int(float(percent.replace('%', ''))))
+                    except:
+                        pass
+                
+                download_status['files'].append({
+                    'time': time.strftime('%H:%M:%S'),
+                    'name': f'{filename} - {d.get("_percent_str", "0%")}'
+                })
+                
+                # Keep only last 20 files in log
+                if len(download_status['files']) > 20:
+                    download_status['files'] = download_status['files'][-20:]
+
+        @app.route('/')
+        def index():
+            return render_template_string(HTML_TEMPLATE)
+
+        @app.route('/start-download', methods=['POST'])
+        def start_download():
+            data = request.json
+            url = data.get('url', '')
+            
+            # Start download in background thread
+            thread = threading.Thread(target=download_videos, args=(url,))
+            thread.daemon = True
+            thread.start()
+            
+            return jsonify({'success': True, 'message': 'Download started'})
+
+        @app.route('/progress')
+        def get_progress():
+            return jsonify(download_status)
+
+        if __name__ == '__main__':
+            app.run(host='0.0.0.0', port=8080, debug=False)
+        "@ > windows98_downloader.py
+
+    - name: Create batch file for Windows 98 style
       run: |
-        cd $HOME/termux/home
-        
-        echo "🚀 Executing: ${{ github.event.inputs.command }}"
-        echo "----------------------------------------"
-        
-        # Command execution with error handling
-        case "${{ github.event.inputs.command }}" in
-          "pkg list-all")
-            echo "Simulated package listing:"
-            echo "python3, nodejs, git, ffmpeg, vim, nano, curl, wget"
-            echo "clang, make, cmake, python-pip, node-npm"
-            ;;
-          "pkg update")
-            echo "Simulating package update..."
-            sudo apt-get update
-            ;;
-          "pkg install")
-            echo "Usage: pkg install <package>"
-            echo "Available: python, nodejs, git, ffmpeg"
-            ;;
-          "termux-setup-storage")
-            echo "📁 Setting up storage simulation..."
-            mkdir -p storage/shared
-            mkdir -p storage/downloads
-            mkdir -p storage/dcim
-            mkdir -p storage/pictures
-            echo "✅ Storage folders created"
-            ;;
-          "neofetch")
-            neofetch || echo "System: GitHub Actions Runner"
-            echo "Environment: Termux Simulator"
-            echo "Runner: Ubuntu Linux"
-            ;;
-          *)
-            # Execute the actual command
-            eval "${{ github.event.inputs.command }}" || echo "Command executed with exit code: $?"
-            ;;
-        esac
+        @"
+        @echo off
+        echo ╔══════════════════════════════════════╗
+        echo ║    WINDOWS 98 DOWNLOAD MANAGER      ║
+        echo ║          GitHub Actions Edition     ║
+        echo ╚══════════════════════════════════════╝
+        echo.
+        echo Initializing download system...
+        echo Target: ${{ github.event.inputs.target_url }}
+        echo.
+        python windows98_downloader.py
+        "@ > start_downloader.bat
 
-    - name: Interactive terminal simulation
+    - name: Download content with progress tracking
       run: |
-        cd $HOME/termux/home
+        # Create a simple progress tracking script
+        python -c "
+        import os
+        import time
+        import yt_dlp
+        from datetime import datetime
         
-        echo "💻 Interactive Terminal Session"
-        echo "================================"
+        class ProgressLogger:
+            def __init__(self):
+                self.downloaded_files = []
+                
+            def progress_hook(self, d):
+                if d['status'] == 'downloading':
+                    percent = d.get('_percent_str', '0%')
+                    speed = d.get('_speed_str', 'N/A')
+                    eta = d.get('_eta_str', 'N/A')
+                    
+                    print(f'[{datetime.now().strftime(\"%H:%M:%S\")}] 📥 {percent} | Speed: {speed} | ETA: {eta}')
+                    
+                elif d['status'] == 'finished':
+                    filename = os.path.basename(d['filename'])
+                    self.downloaded_files.append(filename)
+                    print(f'[{datetime.now().strftime(\"%H:%M:%S\")}] ✅ Completed: {filename}')
         
-        # Common Termux commands simulation
-        echo "$ pwd"
-        pwd
+        logger = ProgressLogger()
         
-        echo "$ ls -la"
-        ls -la
+        ydl_opts = {
+            'outtmpl': 'downloads/%(uploader)s/%(title).100s.%(ext)s',
+            'format': 'best[ext=mp4]/best',
+            'writethumbnail': True,
+            'embedmetadata': True,
+            'ignoreerrors': True,
+            'progress_hooks': [logger.progress_hook],
+        }
         
-        echo "$ python3 --version"
-        python3 --version
+        print('🚀 Starting download process...')
+        print('🔗 URL: ${{ github.event.inputs.target_url }}')
+        print('⏰ Started at:', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        print('='*50)
         
-        echo "$ node --version"
-        node --version
-        
-        echo "$ git --version"
-        git --version
-        
-        echo "📊 System Info:"
-        echo "CPU: $(nproc) cores"
-        echo "Memory: $(free -h | grep Mem | awk '{print $2}')"
-        echo "Disk: $(df -h . | awk 'NR==2 {print $4}') available"
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download(['${{ github.event.inputs.target_url }}'])
+                
+            print('='*50)
+            print('🎉 Download completed successfully!')
+            print(f'📁 Files downloaded: {len(logger.downloaded_files)}')
+            
+        except Exception as e:
+            print(f'❌ Error: {e}')
+        "
 
-    - name: Create Termux environment report
+    - name: Create download summary
       run: |
-        echo "📋 TERMUX ENVIRONMENT REPORT" > environment-report.txt
-        echo "==============================" >> environment-report.txt
-        echo "" >> environment-report.txt
-        echo "Python: $(python3 --version)" >> environment-report.txt
-        echo "Node.js: $(node --version)" >> environment-run: |
-        echo "Git: $(git --version)" >> environment-report.txt
-        echo "FFmpeg: $(ffmpeg -version | head -n1)" >> environment-report.txt
-        echo "" >> environment-report.txt
-        echo "Available tools:" >> environment-report.txt
-        echo "- Python3 with pip" >> environment-report.txt
-        echo "- Node.js with npm" >> environment-report.txt
-        echo "- Git version control" >> environment-report.txt
-        echo "- FFmpeg multimedia" >> environment-report.txt
-        echo "- Curl/Wget for downloads" >> environment-report.txt
-        echo "- Vim/Nano editors" >> environment-report.txt
+        # Count downloaded files and create summary
+        $files = (Get-ChildItem -Path "downloads" -Recurse -File).Count
+        $totalSize = [math]::Round((Get-ChildItem -Path "downloads" -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 2)
         
-        cat environment-report.txt
+        @"
+        ╔══════════════════════════════════════╗
+        ║         DOWNLOAD SUMMARY             ║
+        ║        Windows 98 Style              ║
+        ╚══════════════════════════════════════╝
+        
+        📊 Statistics:
+        📁 Files Downloaded: $files
+        💾 Total Size: $totalSize MB
+        🔗 Source URL: ${{ github.event.inputs.target_url }}
+        ⏰ Completed at: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        
+        📂 Downloaded Content:
+        $(Get-ChildItem -Path "downloads" -Recurse -File | ForEach-Object { "   📄 $($_.Name)" })
+        
+        ✅ Process completed successfully!
+        "@ > download_summary.txt
+        
+        Get-Content download_summary.txt
 
-    - name: Upload Termux session results
+    - name: Upload downloaded content
       uses: actions/upload-artifact@v4
       with:
-        name: termux-session-results
+        name: windows98-downloads
         path: |
-          $HOME/termux/home/
-          environment-report.txt
-        retention-days: 7
+          downloads/
+          download_summary.txt
+          windows98_downloader.py
+        retention-days: 30
+
+    - name: Create Windows 98 style report
+      run: |
+        @"
+        ========================================
+        WINDOWS 98 DOWNLOAD MANAGER - FINAL REPORT
+        ========================================
+        Status: COMPLETED
+        URL: ${{ github.event.inputs.target_url }}
+        Runner: Windows Server
+        Time: $(Get-Date)
+        Artifact: windows98-downloads
+        ========================================
+        "@ > windows98_report.txt
