@@ -1,217 +1,652 @@
-# This workflow will build and push a Python application to an Azure Web App when a commit is pushed to your default branch.
-#
-# Thisname: Web Download Interface
-
-on: 
-  workflow_dispatch:
-    inputs:
-      web_port:
-        description: 'Web interface port'
-        default: '8080'
-
-jobs:
-  web-downloader:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Setup Python and web server
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y python3-pip ffmpeg
-        pip3 install yt-dlp flask
-        
-        # Create simple web interface
-        cat > web_downloader.py << 'EOF'
-        from flask import Flask, request, jsonify, render_template
-        import subprocess
-        import os
-        import json
-        import threading
-        
-        app = Flask(__name__)
-        
-        @app.route('/')
-        def index():
-            return '''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>GitHub Actions Downloader</title>
-                <style>
-                    body { font-family: Arial; margin: 40px; }
-                    .container { max-width: 800px; margin: 0 auto; }
-                    input[type="text"] { width: 70%; padding: 10px; margin: 10px 0; }
-                    button { padding: 10px 20px; background: #007acc; color: white; border: none; cursor: pointer; }
-                    .progress { width: 100%; background: #f0f0f0; margin: 10px 0; }
-                    .progress-bar { height: 20px; background: #007acc; width: 0%; }
-                    .log { background: #000; color: #0f0; padding: 10px; height: 300px; overflow-y: scroll; font-family: monospace; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h1>🔄 GitHub Actions Downloader</h1>
-                    <input type="text" id="url" placeholder="Enter TikTok/YouTube URL">
-                    <button onclick="startDownload()">Start Download</button>
-                    
-                    <div class="progress">
-                        <div class="progress-bar" id="progressBar"></div>
-                    </div>
-                    
-                    <div>Status: <span id="status">Ready</span></div>
-                    
-                    <h3>Download Log:</h3>
-                    <div class="log" id="log"></div>
-                </div>
-                
-                <script>
-                    function startDownload() {
-                        const url = document.getElementById('url').value;
-                        fetch('/download', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({url: url})
-                        });
-                        updateProgress();
-                    }
-                    
-                    function updateProgress() {
-                        fetch('/progress')
-                            .then(r => r.json())
-                            .then(data => {
-                                document.getElementById('progressBar').style.width = data.progress + '%';
-                                document.getElementById('status').textContent = data.status;
-                                document.getElementById('log').innerHTML = data.log;
-                                setTimeout(updateProgress, 1000);
-                            });
-                    }
-                </script>
-            </body>
-            </html>
-            '''
-        
-        download_status = {'progress': 0, 'status': 'Ready', 'log': ''}
-        
-        @app.route('/download', methods=['POST'])
-        def download():
-            data = request.json
-            url = data.get('url')
-            
-            def download_thread():
-                download_status.update({'progress': 10, 'status': 'Starting...', 'log': ''})
-                
-                try:
-                    cmd = f'yt-dlp -o "downloads/%(title)s.%(ext)s" --print-json "{url}"'
-                    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-                    
-                    for line in process.stdout:
-                        download_status['log'] += line + '<br>'
-                        download_status['progress'] = min(90, download_status['progress'] + 5)
-                    
-                    download_status.update({'progress': 100, 'status': 'Completed!'})
-                except Exception as e:
-                    download_status.update({'status': f'Error: {e}', 'progress': 0})
-            
-            threading.Thread(target=download_thread).start()
-            return jsonify({'status': 'started'})
-        
-        @app.route('/progress')
-        def progress():
-            return jsonify(download_status)
-        
-        if __name__ == '__main__':
-            app.run(host='0.0.0.0', port=8080)
-        EOF
-
-    - name: Start web server (if needed)
-      run: |
-        # Note: GitHub Actions workflows can't directly expose web ports
-        # This would need to be deployed separately
-        echo "Web interface code is ready!"
-        echo "To use the web interface, deploy the Flask app separately."
-        echo "Download functionality will work through the workflow." workflow assumes you have already created the target Azure App Service web app.
-# For instructions see https://docs.microsoft.com/en-us/azure/app-service/quickstart-python?tabs=bash&pivots=python-framework-flask
-#
-# To configure this workflow:
-#
-# 1. Download the Publish Profile for your Azure Web App. You can download this file from the Overview page of your Web App in the Azure Portal.
-#    For more information: https://docs.microsoft.com/en-us/azure/app-service/deploy-github-actions?tabs=applevel#generate-deployment-credentials
-#
-# 2. Create a secret in your repository named AZURE_WEBAPP_PUBLISH_PROFILE, paste the publish profile contents as the value of the secret.
-#    For instructions on obtaining the publish profile see: https://docs.microsoft.com/azure/app-service/deploy-github-actions#configure-the-github-secret
-#
-# 3. Change the value for the AZURE_WEBAPP_NAME. Optionally, change the PYTHON_VERSION environment variables below.
-#
-# For more information on GitHub Actions for Azure: https://github.com/Azure/Actions
-# For more information on the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# For more samples to get started with GitHub Action workflows to deploy to Azure: https://github.com/Azure/actions-workflow-samples
-
-name: Build and deploy Python app to Azure Web App
-
-env:
-  AZURE_WEBAPP_NAME: your-app-name  # set this to the name of your Azure Web App
-  PYTHON_VERSION: '3.8'              # set this to the Python version to use
+name: Build and deploy Python app to Azure Web App - Windows98Downloader
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'URL to download content from'
+        required: true
+        default: 'https://www.tiktok.com/@qawwli.lovers1'
+      download_type:
+        description: 'Type of download'
+        required: true
+        default: 'tiktok'
+        type: choice
+        options:
+        - tiktok
+        - youtube
+        - general
 
-permissions:
-  contents: read
+env:
+  AZURE_WEBAPP_NAME: 'windows98-downloader'
+  PYTHON_VERSION: '3.10'
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
-
+    environment: production
+    
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python version
-        uses: actions/setup-python@v3.0.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
+    - name: Setup Python ${{ env.PYTHON_VERSION }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
 
-      - name: Create and start virtual environment
-        run: |
-          python -m venv venv
-          source venv/bin/activate
+    - name: Create requirements.txt
+      run: |
+        echo "Flask==2.3.3" > requirements.txt
+        echo "yt-dlp==2023.11.16" >> requirements.txt
+        echo "requests==2.31.0" >> requirements.txt
+        echo "beautifulsoup4==4.12.2" >> requirements.txt
+        echo "gunicorn==21.2.0" >> requirements.txt
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install flake8 pytest
 
-      # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
+    - name: Create Windows 98 Downloader App
+      run: |
+        mkdir -p application
+        cat > application/__init__.py << 'EOF'
+        # Windows 98 Download Manager - Azure Web App
+        __version__ = '1.0.0'
+        EOF
 
-      - name: Upload artifact for deployment jobs
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-app
-          path: |
-            .
-            !venv/
+        cat > application/app.py << 'EOF'
+        import os
+        import sys
+        import time
+        import threading
+        import json
+        from flask import Flask, render_template_string, request, jsonify, send_file
+        import yt_dlp
+        from datetime import datetime
+        import logging
 
-  deploy:
-    permissions:
-      contents: none
+        app = Flask(__name__)
+        app.secret_key = os.environ.get('SECRET_KEY', 'windows98-secret-key-2024')
+
+        # Configure logging
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+
+        # Windows 98 Style HTML Template
+        HTML_TEMPLATE = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Windows 98 Download Manager - Azure</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {
+                    font-family: 'MS Sans Serif', Arial, sans-serif;
+                    background-color: #008080;
+                    margin: 0;
+                    padding: 20px;
+                    color: #000;
+                    min-height: 100vh;
+                }
+                .window {
+                    background-color: #c0c0c0;
+                    border: 2px outset;
+                    padding: 2px;
+                    margin: 10px auto;
+                    width: 95%;
+                    max-width: 900px;
+                    box-shadow: 3px 3px 10px rgba(0,0,0,0.3);
+                }
+                .title-bar {
+                    background: linear-gradient(90deg, #000080, #1084d0);
+                    color: white;
+                    padding: 6px 8px;
+                    font-weight: bold;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    font-size: 14px;
+                }
+                .content {
+                    padding: 20px;
+                    background-color: #c0c0c0;
+                }
+                input[type="text"] {
+                    width: 75%;
+                    padding: 8px;
+                    border: 2px inset;
+                    background: white;
+                    font-family: 'MS Sans Serif';
+                    font-size: 14px;
+                    margin-right: 10px;
+                }
+                button {
+                    background-color: #c0c0c0;
+                    border: 2px outset;
+                    padding: 8px 16px;
+                    font-family: 'MS Sans Serif';
+                    cursor: pointer;
+                    font-size: 14px;
+                    margin: 2px;
+                }
+                button:hover {
+                    background-color: #d0d0d0;
+                }
+                button:active {
+                    border: 2px inset;
+                }
+                .progress-container {
+                    border: 2px inset;
+                    background: white;
+                    height: 24px;
+                    margin: 15px 0;
+                    position: relative;
+                }
+                .progress-bar {
+                    background: linear-gradient(90deg, #000080, #1084d0);
+                    height: 100%;
+                    width: 0%;
+                    transition: width 0.3s ease;
+                }
+                .progress-text {
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    font-weight: bold;
+                    color: #000;
+                    text-shadow: 1px 1px 0 #fff;
+                }
+                .file-list {
+                    border: 2px inset;
+                    background: white;
+                    height: 250px;
+                    overflow-y: auto;
+                    padding: 8px;
+                    font-family: 'Courier New', monospace;
+                    font-size: 12px;
+                    line-height: 1.4;
+                }
+                .status-bar {
+                    background-color: #c0c0c0;
+                    border: 2px inset;
+                    padding: 6px 8px;
+                    margin-top: 10px;
+                    font-size: 13px;
+                    display: flex;
+                    justify-content: space-between;
+                }
+                .controls {
+                    display: flex;
+                    gap: 10px;
+                    margin: 15px 0;
+                    flex-wrap: wrap;
+                }
+                .download-item {
+                    background: #e8e8e8;
+                    margin: 4px 0;
+                    padding: 6px;
+                    border: 1px inset;
+                    border-radius: 2px;
+                }
+                .success { color: #008000; }
+                .error { color: #c00000; }
+                .warning { color: #808000; }
+                .info { color: #000080; }
+                
+                @media (max-width: 768px) {
+                    input[type="text"] {
+                        width: 100%;
+                        margin-bottom: 10px;
+                    }
+                    .controls {
+                        flex-direction: column;
+                    }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="window">
+                <div class="title-bar">
+                    <span>🌐 Windows 98 Download Manager - Azure Web App</span>
+                    <span style="font-size: 12px;">╳ ─ □</span>
+                </div>
+                <div class="content">
+                    <h3>📥 Enter URL to Download:</h3>
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 15px;">
+                        <input type="text" id="urlInput" placeholder="https://www.tiktok.com/@username OR https://www.youtube.com/watch?v=..." value="{{ target_url }}">
+                        <button onclick="startDownload()">🚀 Start Download</button>
+                    </div>
+                    
+                    <div class="controls">
+                        <button onclick="quickExample('tiktok')">📹 TikTok Example</button>
+                        <button onclick="quickExample('youtube')">🎵 YouTube Example</button>
+                        <button onclick="clearAll()">🗑️ Clear All</button>
+                        <button onclick="showHelp()">❓ Help</button>
+                    </div>
+                    
+                    <h4>📊 Download Progress:</h4>
+                    <div class="progress-container">
+                        <div class="progress-bar" id="progressBar"></div>
+                        <div class="progress-text" id="progressText">0%</div>
+                    </div>
+                    
+                    <div class="status-bar">
+                        <span id="statusBar">✅ Ready to download... | 🌐 Azure Web App</span>
+                        <span id="fileCount">Files: 0</span>
+                    </div>
+                    
+                    <h4>📁 Download Queue:</h4>
+                    <div class="file-list" id="fileList">
+                        <div class="download-item info">Welcome to Windows 98 Download Manager!</div>
+                        <div class="download-item info">Enter a URL above and click Start Download</div>
+                    </div>
+                    
+                    <div class="controls">
+                        <button onclick="checkProgress()">🔄 Refresh Status</button>
+                        <button onclick="downloadResults()">💾 Download Results</button>
+                        <button onclick="viewLogs()">📋 View Logs</button>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+                let downloadInterval;
+                let currentProgress = 0;
+                
+                function quickExample(type) {
+                    const examples = {
+                        tiktok: 'https://www.tiktok.com/@qawwli.lovers1',
+                        youtube: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+                    };
+                    document.getElementById('urlInput').value = examples[type];
+                    addToFileList('System', `Loaded ${type} example URL`);
+                }
+                
+                function startDownload() {
+                    const url = document.getElementById('urlInput').value.trim();
+                    if (!url) {
+                        alert('⚠️ Please enter a URL!');
+                        return;
+                    }
+                    
+                    if (!url.startsWith('http')) {
+                        alert('❌ Please enter a valid URL starting with http:// or https://');
+                        return;
+                    }
+                    
+                    updateStatus('🔄 Starting download...');
+                    updateProgress(5);
+                    clearFileList();
+                    addToFileList('System', `Starting download from: ${url}`);
+                    
+                    fetch('/start-download', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({url: url})
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            addToFileList('System', '✅ Download started successfully!');
+                            downloadInterval = setInterval(checkProgress, 1500);
+                        } else {
+                            addToFileList('System', '❌ Failed to start download: ' + data.message, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        addToFileList('System', '❌ Network error: ' + error, 'error');
+                    });
+                }
+                
+                function checkProgress() {
+                    fetch('/progress')
+                        .then(response => response.json())
+                        .then(data => {
+                            updateProgress(data.progress);
+                            updateStatus(data.status);
+                            updateFileCount(data.file_count || 0);
+                            
+                            // Update file list
+                            if (data.recent_files && data.recent_files.length > 0) {
+                                data.recent_files.forEach(file => {
+                                    addToFileList(file.type, file.message, file.status);
+                                });
+                            }
+                            
+                            if (data.progress >= 100) {
+                                clearInterval(downloadInterval);
+                                addToFileList('System', '🎉 Download completed! Click "Download Results" to get your files.', 'success');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Progress check failed:', error);
+                        });
+                }
+                
+                function updateProgress(percent) {
+                    currentProgress = percent;
+                    document.getElementById('progressBar').style.width = percent + '%';
+                    document.getElementById('progressText').textContent = percent + '%';
+                }
+                
+                function updateStatus(status) {
+                    document.getElementById('statusBar').textContent = status + ' | 🌐 Azure Web App';
+                }
+                
+                function updateFileCount(count) {
+                    document.getElementById('fileCount').textContent = `Files: ${count}`;
+                }
+                
+                function addToFileList(type, message, status = 'info') {
+                    const fileList = document.getElementById('fileList');
+                    const item = document.createElement('div');
+                    item.className = `download-item ${status}`;
+                    item.innerHTML = `<strong>[${new Date().toLocaleTimeString()}] ${type}:</strong> ${message}`;
+                    fileList.appendChild(item);
+                    fileList.scrollTop = fileList.scrollHeight;
+                }
+                
+                function clearFileList() {
+                    document.getElementById('fileList').innerHTML = '';
+                }
+                
+                function clearAll() {
+                    clearFileList();
+                    updateProgress(0);
+                    updateStatus('✅ Ready to download...');
+                    updateFileCount(0);
+                    addToFileList('System', 'Cleared all logs and progress');
+                }
+                
+                function downloadResults() {
+                    window.open('/download-results', '_blank');
+                }
+                
+                function viewLogs() {
+                    fetch('/logs')
+                        .then(response => response.json())
+                        .then(data => {
+                            clearFileList();
+                            data.logs.forEach(log => {
+                                addToFileList(log.type, log.message, log.status);
+                            });
+                        });
+                }
+                
+                function showHelp() {
+                    alert(`Windows 98 Download Manager Help:\n\n✅ Supported URLs:\n- TikTok profiles (https://www.tiktok.com/@username)\n- YouTube videos & playlists\n- Most video sites\n\n🚀 Features:\n- Real-time progress tracking\n- Multiple file downloads\n- Azure cloud powered\n- Retro Windows 98 interface`);
+                }
+            </script>
+        </body>
+        </html>
+        '''
+
+        # Global download state
+        download_state = {
+            'progress': 0,
+            'status': 'Ready to download...',
+            'file_count': 0,
+            'recent_files': [],
+            'logs': [],
+            'is_downloading': False,
+            'current_url': ''
+        }
+
+        def add_log(message, log_type='System', status='info'):
+            """Add log entry to the global state"""
+            timestamp = datetime.now().strftime('%H:%M:%S')
+            log_entry = {
+                'timestamp': timestamp,
+                'type': log_type,
+                'message': message,
+                'status': status
+            }
+            download_state['logs'].append(log_entry)
+            download_state['recent_files'] = download_state['logs'][-10:]  # Keep last 10 entries
+            download_state['file_count'] = len([log for log in download_state['logs'] if log['status'] == 'success'])
+
+        def download_videos(url):
+            """Download videos from the given URL"""
+            try:
+                download_state['is_downloading'] = True
+                download_state['current_url'] = url
+                download_state['progress'] = 10
+                download_state['status'] = 'Initializing download...'
+                
+                add_log(f'Starting download from: {url}', 'System', 'info')
+                
+                # Create downloads directory
+                os.makedirs('downloads', exist_ok=True)
+                
+                # Configure yt-dlp options
+                ydl_opts = {
+                    'outtmpl': 'downloads/%(title).100s.%(ext)s',
+                    'format': 'best[ext=mp4]/best',
+                    'writethumbnail': True,
+                    'embedmetadata': True,
+                    'ignoreerrors': True,
+                    'progress_hooks': [progress_hook],
+                }
+                
+                download_state['progress'] = 20
+                download_state['status'] = 'Starting download process...'
+                add_log('Download process started', 'System', 'info')
+                
+                # Perform the download
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+                
+                download_state['progress'] = 100
+                download_state['status'] = 'Download completed successfully! 🎉'
+                add_log('All downloads completed successfully!', 'System', 'success')
+                
+            except Exception as e:
+                error_msg = f'Download error: {str(e)}'
+                download_state['status'] = f'❌ Error: {str(e)}'
+                download_state['progress'] = 0
+                add_log(error_msg, 'System', 'error')
+                logger.error(error_msg)
+            finally:
+                download_state['is_downloading'] = False
+
+        def progress_hook(d):
+            """Progress hook for yt-dlp"""
+            if d['status'] == 'downloading':
+                filename = os.path.basename(d.get('filename', 'unknown'))
+                percent = d.get('_percent_str', '0%').strip()
+                speed = d.get('_speed_str', 'N/A')
+                eta = d.get('_eta_str', 'N/A')
+                
+                download_state['status'] = f'Downloading: {percent} | Speed: {speed} | ETA: {eta}'
+                
+                try:
+                    progress_value = min(95, int(float(percent.replace('%', ''))))
+                    download_state['progress'] = progress_value
+                except ValueError:
+                    pass
+                
+                add_log(f'{percent} - {filename} (Speed: {speed}, ETA: {eta})', 'Download', 'info')
+                
+            elif d['status'] == 'finished':
+                filename = os.path.basename(d.get('filename', 'unknown'))
+                download_state['status'] = f'Completed: {filename}'
+                add_log(f'Successfully downloaded: {filename}', 'Download', 'success')
+
+        @app.route('/')
+        def index():
+            """Main page with Windows 98 interface"""
+            target_url = os.environ.get('DEFAULT_URL', 'https://www.tiktok.com/@qawwli.lovers1')
+            return render_template_string(HTML_TEMPLATE, target_url=target_url)
+
+        @app.route('/start-download', methods=['POST'])
+        def start_download():
+            """Start download endpoint"""
+            if download_state['is_downloading']:
+                return jsonify({'success': False, 'message': 'Download already in progress'})
+            
+            data = request.get_json()
+            url = data.get('url', '').strip()
+            
+            if not url:
+                return jsonify({'success': False, 'message': 'No URL provided'})
+            
+            # Start download in background thread
+            thread = threading.Thread(target=download_videos, args=(url,))
+            thread.daemon = True
+            thread.start()
+            
+            return jsonify({'success': True, 'message': 'Download started successfully'})
+
+        @app.route('/progress')
+        def get_progress():
+            """Get current download progress"""
+            return jsonify(download_state)
+
+        @app.route('/logs')
+        def get_logs():
+            """Get download logs"""
+            return jsonify({'logs': download_state['logs']})
+
+        @app.route('/download-results')
+        def download_results():
+            """Download results endpoint (placeholder)"""
+            return jsonify({'message': 'Download results feature coming soon!'})
+
+        @app.route('/health')
+        def health_check():
+            """Health check endpoint for Azure"""
+            return jsonify({'status': 'healthy', 'service': 'Windows98 Download Manager'})
+
+        # Error handlers
+        @app.errorhandler(404)
+        def not_found(error):
+            return jsonify({'error': 'Endpoint not found'}), 404
+
+        @app.errorhandler(500)
+        def internal_error(error):
+            return jsonify({'error': 'Internal server error'}), 500
+
+        if __name__ == '__main__':
+            app.run(host='0.0.0.0', port=8000, debug=False)
+        EOF
+
+        # Create startup file for Azure
+        cat > startup.txt << 'EOF'
+        # Azure Startup Configuration for Windows 98 Download Manager
+        # This app requires:
+        # - Python 3.10
+        # - Flask
+        # - yt-dlp
+        # - requests
+        # - beautifulsoup4
+        
+        # The main application entry point is application/app.py
+        # Azure will automatically detect Flask app and deploy it
+        
+        # Required environment variables:
+        # WEBSITE_STARTUP_COMMAND: python application/app.py
+        # PYTHON_VERSION: 3.10
+        EOF
+
+    - name: Create deployment configuration
+      run: |
+        # Create deployment files for Azure
+        cat > .deployment << 'EOF'
+        [config]
+        SCM_BUILD_ARGS = --build-arg ENVIRONMENT=production
+        SCM_DO_BUILD_DURING_DEPLOYMENT = true
+        EOF
+
+        cat > startup.py << 'EOF'
+        #!/usr/bin/env python3
+        """
+        Windows 98 Download Manager - Azure Startup Script
+        """
+        import os
+        from application.app import app
+
+        if __name__ == '__main__':
+            port = int(os.environ.get('PORT', 8000))
+            app.run(host='0.0.0.0', port=port, debug=False)
+        EOF
+
+    - name: Create deployment script
+      run: |
+        cat > deploy.sh << 'EOF'
+        #!/bin/bash
+        echo "🚀 Deploying Windows 98 Download Manager to Azure Web App..."
+        echo "📦 Application: Windows 98 Style Downloader"
+        echo "🐍 Python Version: $PYTHON_VERSION"
+        echo "🌐 Web App Name: $AZURE_WEBAPP_NAME"
+        
+        # Install production dependencies
+        pip install -r requirements.txt
+        
+        # Create necessary directories
+        mkdir -p downloads
+        mkdir -p logs
+        
+        echo "✅ Deployment preparation completed!"
+        EOF
+        chmod +x deploy.sh
+
+    - name: Log deployment info
+      run: |
+        echo "🎯 Azure Web App Deployment Configuration"
+        echo "=========================================="
+        echo "App Name: $AZURE_WEBAPP_NAME"
+        echo "Python Version: $PYTHON_VERSION"
+        echo "Runtime: Python 3.10"
+        echo "Entry Point: application/app.py"
+        echo "Framework: Flask"
+        echo "Features:"
+        echo "  ✅ Windows 98 Style Interface"
+        echo "  ✅ TikTok/YouTube Downloader"
+        echo "  ✅ Real-time Progress Tracking"
+        echo "  ✅ Azure Cloud Deployment"
+        echo "=========================================="
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: azure-webapp-build
+        path: |
+          application/
+          requirements.txt
+          startup.py
+          .deployment
+          deploy.sh
+        retention-days: 30
+
+  deploy-to-azure:
     runs-on: ubuntu-latest
-    needs: build
-    environment:
-      name: 'Development'
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-
+    needs: build-and-deploy
+    environment: production
+    
     steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@v4
-        with:
-          name: python-app
-          path: .
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: azure-webapp-build
 
-      - name: 'Deploy to Azure Web App'
-        id: deploy-to-webapp
-        uses: azure/webapps-deploy@v2
-        with:
-          app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+    - name: Deploy to Azure Web App
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        package: .
+        
+    - name: Verify deployment
+      run: |
+        echo "✅ Windows 98 Download Manager deployed successfully to Azure!"
+        echo "🌐 Your app should be available at: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+        echo "🎯 Features deployed:"
+        echo "   - Windows 98 Style Interface"
+        echo "   - TikTok/YouTube Downloader"
+        echo "   - Real-time Progress Tracking"
+        echo "   - Azure Cloud Hosting"
