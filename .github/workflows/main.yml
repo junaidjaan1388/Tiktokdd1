@@ -1,32 +1,39 @@
-name: Python TikTok Downloader
+name: Quick TikTok Download
 
 on:
   workflow_dispatch:
     inputs:
       tiktok_url:
-        description: 'TikTok URL'
+        description: 'TikTok URL to download'
         required: true
-        default: 'https://www.tiktok.com/@z.a.r.i240'
+        default: 'https://www.tiktok.com/@qawwli.lovers1'
 
 jobs:
   download:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      
-    - name: Setup
+    - name: Download and zip
       run: |
-        sudo apt-get install -y ffmpeg
+        # Install tools
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg python3-pip zip
         pip install yt-dlp
         
-    - name: Run download script
-      run: |
-        python download.py "${{ github.event.inputs.tiktok_url }}"
+        # Download videos
+        echo "📥 Downloading from: ${{ github.event.inputs.tiktok_url }}"
+        yt-dlp -f "best[ext=mp4]" -o "videos/%(title)s.%(ext)s" "${{ github.event.inputs.tiktok_url }}"
         
-    - name: Upload zip
+        # Create zip
+        zip -r download.zip videos/
+        
+        # Show results
+        echo "✅ Download complete!"
+        echo "📁 Files downloaded: $(find videos -name '*.mp4' | wc -l)"
+        echo "📦 Zip size: $(du -h download.zip | cut -f1)"
+
+    - name: Upload results
       uses: actions/upload-artifact@v4
       with:
         name: tiktok-videos
-        path: tiktok_videos.zip
+        path: download.zip
